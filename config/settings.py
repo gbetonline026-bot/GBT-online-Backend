@@ -36,6 +36,10 @@ INSTALLED_APPS = [
     "rest_framework.authtoken",
     "corsheaders",
     "leads.apps.LeadsConfig",
+    "accounts.apps.AccountsConfig",
+    "academics.apps.AcademicsConfig",
+    "finance.apps.FinanceConfig",
+    "cms.apps.CmsConfig",
 ]
 
 MIDDLEWARE = [
@@ -92,7 +96,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.TokenAuthentication",
+        "accounts.authentication.PortalTokenAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
@@ -100,8 +104,43 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_THROTTLE_RATES": {
         "enquiry": "30/min",
+        "portal_auth": os.environ.get("PORTAL_AUTH_RATE", "10/min"),
     },
 }
+
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+PORTAL_TOKEN_TTL_HOURS = int(os.environ.get("PORTAL_TOKEN_TTL_HOURS", "12"))
+PASSWORD_RESET_TIMEOUT = int(os.environ.get("PASSWORD_RESET_TIMEOUT_SECONDS", str(60 * 60 * 24)))
+
+# Lesson videos and study materials are private: they are never served from MEDIA_URL,
+# only through signed, time-limited links checked against the student's enrolment.
+MEDIA_ROOT = Path(os.environ.get("PRIVATE_MEDIA_ROOT", BASE_DIR / "private_media"))
+MEDIA_URL = "/private-media/"
+PUBLIC_API_URL = os.environ.get("PUBLIC_API_URL", "http://127.0.0.1:8000").rstrip("/")
+LMS_MEDIA_LINK_TTL_SECONDS = int(os.environ.get("LMS_MEDIA_LINK_TTL_SECONDS", str(60 * 60 * 3)))
+LMS_MAX_VIDEO_MB = int(os.environ.get("LMS_MAX_VIDEO_MB", "1024"))
+LMS_MAX_MATERIAL_MB = int(os.environ.get("LMS_MAX_MATERIAL_MB", "25"))
+DATA_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
+
+# Online fee payments (Razorpay). Leave the keys empty to keep online payment switched off.
+RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
+RAZORPAY_WEBHOOK_SECRET = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "")
+RECEIPT_PREFIX = os.environ.get("RECEIPT_PREFIX", "GBET-R-")
+RECEIPT_ORG_NAME = os.environ.get("RECEIPT_ORG_NAME", "Gautam Buddha Educational Trust – GBET Online")
+RECEIPT_ORG_ADDRESS = os.environ.get("RECEIPT_ORG_ADDRESS", "C-77, Sector 63A, Noida, Uttar Pradesh")
+RECEIPT_CONTACT = os.environ.get("RECEIPT_CONTACT", "Queries: +91 9355470710 · admission@gbedutrust.com")
+
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.console.EmailBackend" if DEBUG else "django.core.mail.backends.smtp.EmailBackend",
+)
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "localhost")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "True").lower() in {"1", "true", "yes"}
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "GBET Online <admission@gbedutrust.com>")
 
 if DEBUG:
     CORS_ALLOW_ALL_ORIGINS = True

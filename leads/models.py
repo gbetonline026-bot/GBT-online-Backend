@@ -10,6 +10,9 @@ class Enquiry(models.Model):
     class Source(models.TextChoices):
         WEBSITE = "website", "Website form"
         BROCHURE = "brochure", "Brochure"
+        APPLICATION = "application", "Online application"
+        COUNSELLING = "counselling", "Counselling booking"
+        SCHOLARSHIP = "scholarship", "Scholarship request"
 
     full_name = models.CharField(max_length=120)
     mobile = models.CharField(max_length=10)
