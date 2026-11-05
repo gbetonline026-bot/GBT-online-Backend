@@ -37,7 +37,8 @@ def env_list(*names, default=""):
 
 
 SECRET_KEY = env("DJANGO_SECRET_KEY", "SECRET_KEY", default="dev-only-change-me")
-DEBUG = env("DJANGO_DEBUG", "DEBUG", default="True").lower() in TRUTHY
+# Render sets RENDER=true on its servers, so production never falls back to DEBUG by accident.
+DEBUG = env("DJANGO_DEBUG", "DEBUG", default="False" if os.environ.get("RENDER") else "True").lower() in TRUTHY
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "ALLOWED_HOSTS", default="127.0.0.1,localhost")
 RENDER_EXTERNAL_HOSTNAME = env("RENDER_EXTERNAL_HOSTNAME")
 if RENDER_EXTERNAL_HOSTNAME:
