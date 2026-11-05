@@ -160,7 +160,7 @@ class StudyMaterial(models.Model):
     def save(self, *args, **kwargs):
         if self.file and not self.original_name:
             self.original_name = os.path.basename(getattr(self.file, "name", ""))[:200]
-        if self.file:
+        if self.file and not self.file._committed:
             self.size = self.file.size
         super().save(*args, **kwargs)
 

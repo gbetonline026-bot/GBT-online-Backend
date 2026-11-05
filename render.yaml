@@ -1,0 +1,61 @@
+# Render Blueprint for the GBET Online API (Django + DRF).
+# Database: Neon PostgreSQL (DATABASE_URL). Uploads: Cloudinary (CLOUDINARY_URL).
+# Render dashboard → New → Blueprint → select this repository. Fill every "sync: false" value when prompted.
+services:
+  - type: web
+    name: gbet-online-api
+    runtime: python
+    region: singapore
+    plan: starter
+    buildCommand: >-
+      pip install -r requirements.txt &&
+      python manage.py collectstatic --no-input &&
+      python manage.py migrate --no-input &&
+      python manage.py import_catalog &&
+      python manage.py ensure_desk_user
+    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --access-logfile -
+    healthCheckPath: /api/health/
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.14.10
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_ALLOWED_HOSTS
+        sync: false # e.g. api.gbetonline.com (the onrender.com host is added automatically)
+      - key: DATABASE_URL
+        sync: false # Neon → Connection details → connection string (with ?sslmode=require)
+      - key: CLOUDINARY_URL
+        sync: false # Cloudinary dashboard → API environment variable: cloudinary://KEY:SECRET@CLOUD_NAME
+      - key: CLOUDINARY_FOLDER
+        value: gbet-online
+      - key: FRONTEND_URL
+        sync: false # e.g. https://www.gbetonline.com
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false # e.g. https://www.gbetonline.com,https://gbetonline.com
+      - key: PUBLIC_API_URL
+        sync: false # e.g. https://api.gbetonline.com (or https://gbet-online-api.onrender.com)
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false # a new strong password – not the development one
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_PORT
+        value: "587"
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false

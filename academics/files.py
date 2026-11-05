@@ -4,7 +4,7 @@ import re
 
 from django.conf import settings
 from django.core import signing
-from django.http import FileResponse, HttpResponse, StreamingHttpResponse
+from django.http import FileResponse, HttpResponse, HttpResponseRedirect, StreamingHttpResponse
 from django.utils.http import content_disposition_header
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,16 @@ def _chunks(handle, length):
             yield data
     finally:
         handle.close()
+
+
+def serve_private(request, field, filename, attachment):
+    """Send a private file the caller is allowed to see: redirect to cloud storage, or stream from disk."""
+    if hasattr(field.storage, "delivery_url"):
+        response = HttpResponseRedirect(field.storage.delivery_url(field.name, attachment=attachment, filename=filename))
+        response["Cache-Control"] = "private, no-store"
+        response["Referrer-Policy"] = "no-referrer"
+        return response
+    return serve_file(request, field, filename, attachment)
 
 
 def serve_file(request, field, filename, attachment):

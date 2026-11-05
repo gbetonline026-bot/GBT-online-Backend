@@ -12,7 +12,7 @@ from rest_framework.views import APIView
 
 from accounts.permissions import IsActiveStudent
 
-from .files import media_link, read_media_token, serve_file
+from .files import media_link, read_media_token, serve_private
 from .learning import course_state
 from .models import Course, Enrollment, Lesson, LessonProgress, StudyMaterial
 from .serializers import AdminEnrollmentSerializer
@@ -252,12 +252,12 @@ def media_view(request, token):
             lesson = Lesson.objects.filter(pk=claim.get("i")).first()
             if lesson is None or not lesson.video_file:
                 raise Http404
-            return serve_file(request, lesson.video_file, f"lesson-{lesson.id}.{lesson.video_file.name.rsplit('.', 1)[-1]}", attachment=False)
+            return serve_private(request, lesson.video_file, f"lesson-{lesson.id}.{lesson.video_file.name.rsplit('.', 1)[-1]}", attachment=False)
         if claim.get("k") == "material":
             material = StudyMaterial.objects.filter(pk=claim.get("i")).first()
             if material is None:
                 raise Http404
-            return serve_file(request, material.file, material.original_name or f"{material.title}.{material.extension}", attachment=True)
+            return serve_private(request, material.file, material.original_name or f"{material.title}.{material.extension}", attachment=True)
         raise Http404
     profile = getattr(user, "student_profile", None) if user else None
     if profile is None or not profile.is_active_student:
@@ -270,7 +270,7 @@ def media_view(request, token):
         enrollment = enrollments_for(profile).filter(course=lesson.module.course).first()
         if enrollment is None or not enrollment.can_learn or lesson.id not in course_state(enrollment).unlocked:
             return HttpResponseForbidden("You do not have access to this lesson.")
-        return serve_file(request, lesson.video_file, f"lesson-{lesson.id}.{lesson.video_file.name.rsplit('.', 1)[-1]}", attachment=False)
+        return serve_private(request, lesson.video_file, f"lesson-{lesson.id}.{lesson.video_file.name.rsplit('.', 1)[-1]}", attachment=False)
 
     if claim.get("k") == "material":
         material = StudyMaterial.objects.filter(pk=claim.get("i"), is_published=True).first()
@@ -280,7 +280,7 @@ def media_view(request, token):
         if enrollment is None or not enrollment.can_learn:
             return HttpResponseForbidden("You do not have access to this file.")
         name = material.original_name or f"{material.title}.{material.extension}"
-        return serve_file(request, material.file, name, attachment=True)
+        return serve_private(request, material.file, name, attachment=True)
 
     raise Http404
 

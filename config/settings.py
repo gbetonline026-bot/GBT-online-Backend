@@ -1,7 +1,12 @@
 import os
 from pathlib import Path
+from urllib.parse import urlparse
+
+import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+TRUTHY = {"1", "true", "yes", "on"}
 
 
 def load_dotenv(path: Path) -> None:
@@ -17,13 +22,29 @@ def load_dotenv(path: Path) -> None:
 
 load_dotenv(BASE_DIR / ".env")
 
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-only-change-me")
-DEBUG = os.environ.get("DJANGO_DEBUG", "True").lower() in {"1", "true", "yes"}
-ALLOWED_HOSTS = [
-    host.strip()
-    for host in os.environ.get("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
-    if host.strip()
-]
+
+def env(*names, default=""):
+    """First non-empty value among several variable names (e.g. DJANGO_SECRET_KEY or SECRET_KEY)."""
+    for name in names:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return default
+
+
+def env_list(*names, default=""):
+    return [item.strip() for item in env(*names, default=default).split(",") if item.strip()]
+
+
+SECRET_KEY = env("DJANGO_SECRET_KEY", "SECRET_KEY", default="dev-only-change-me")
+DEBUG = env("DJANGO_DEBUG", "DEBUG", default="True").lower() in TRUTHY
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "ALLOWED_HOSTS", default="127.0.0.1,localhost")
+RENDER_EXTERNAL_HOSTNAME = env("RENDER_EXTERNAL_HOSTNAME")
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
+
+if not DEBUG and (SECRET_KEY.startswith("dev-only") or len(SECRET_KEY) < 40):
+    raise ImproperlyConfigured("Set a long, random DJANGO_SECRET_KEY (or SECRET_KEY) when DEBUG is False.")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -44,6 +65,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -72,12 +94,24 @@ TEMPLATES = [
     },
 ]
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+# Local development uses SQLite. In production set DATABASE_URL to the Neon PostgreSQL connection string,
+# e.g. postgresql://user:password@ep-xxxx.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
+DATABASE_URL = env("DATABASE_URL")
+if DATABASE_URL:
+    DATABASES = {
+        "default": dj_database_url.parse(
+            DATABASE_URL, conn_max_age=int(env("DB_CONN_MAX_AGE", default="60")), conn_health_checks=True
+        )
     }
-}
+else:
+    DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}}
+if DATABASE_URL.startswith(("postgres://", "postgresql://")):
+    DATABASES["default"].setdefault("OPTIONS", {}).setdefault("sslmode", "require")
+    if "-pooler." in (urlparse(DATABASE_URL).hostname or ""):
+        # Neon's pooled endpoint uses PgBouncer in transaction mode.
+        DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+elif not DEBUG:
+    raise ImproperlyConfigured("Set DATABASE_URL to the Neon PostgreSQL connection string when DEBUG is False.")
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -92,6 +126,7 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
@@ -116,6 +151,25 @@ PASSWORD_RESET_TIMEOUT = int(os.environ.get("PASSWORD_RESET_TIMEOUT_SECONDS", st
 # only through signed, time-limited links checked against the student's enrolment.
 MEDIA_ROOT = Path(os.environ.get("PRIVATE_MEDIA_ROOT", BASE_DIR / "private_media"))
 MEDIA_URL = "/private-media/"
+
+# Uploads go to Cloudinary when CLOUDINARY_URL (cloudinary://API_KEY:API_SECRET@CLOUD_NAME) is set,
+# otherwise to MEDIA_ROOT on disk (development only – Render's disk is wiped on every deploy).
+CLOUDINARY_URL = env("CLOUDINARY_URL")
+CLOUDINARY_FOLDER = env("CLOUDINARY_FOLDER", default="gbet-online")
+if not CLOUDINARY_URL and not DEBUG:
+    raise ImproperlyConfigured("Set CLOUDINARY_URL for file uploads when DEBUG is False.")
+STORAGES = {
+    "default": {
+        "BACKEND": "academics.cloud_storage.CloudinaryPrivateStorage"
+        if CLOUDINARY_URL
+        else "django.core.files.storage.FileSystemStorage"
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+        if DEBUG
+        else "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    },
+}
 PUBLIC_API_URL = os.environ.get("PUBLIC_API_URL", "http://127.0.0.1:8000").rstrip("/")
 LMS_MEDIA_LINK_TTL_SECONDS = int(os.environ.get("LMS_MEDIA_LINK_TTL_SECONDS", str(60 * 60 * 3)))
 LMS_MAX_VIDEO_MB = int(os.environ.get("LMS_MAX_VIDEO_MB", "1024"))
@@ -145,8 +199,27 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "GBET Online <admissio
 if DEBUG:
     CORS_ALLOW_ALL_ORIGINS = True
 else:
-    CORS_ALLOWED_ORIGINS = [
-        origin.strip()
-        for origin in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",")
-        if origin.strip()
-    ]
+    CORS_ALLOWED_ORIGINS = sorted(set(env_list("CORS_ALLOWED_ORIGINS")) | {FRONTEND_URL})
+    CSRF_TRUSTED_ORIGINS = sorted(
+        set(env_list("CSRF_TRUSTED_ORIGINS"))
+        | {PUBLIC_API_URL}
+        | ({f"https://{RENDER_EXTERNAL_HOSTNAME}"} if RENDER_EXTERNAL_HOSTNAME else set())
+    )
+    # Render terminates HTTPS at its proxy.
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = env("SECURE_SSL_REDIRECT", default="True").lower() in TRUTHY
+    SECURE_REDIRECT_EXEMPT = [r"^api/health/$"]
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(env("SECURE_HSTS_SECONDS", default=str(60 * 60 * 24 * 30)))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = "same-origin"
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "root": {"handlers": ["console"], "level": env("LOG_LEVEL", default="INFO")},
+    "loggers": {"django.request": {"handlers": ["console"], "level": "WARNING", "propagate": False}},
+}
